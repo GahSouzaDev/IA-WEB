@@ -19,14 +19,18 @@
         h1 {
             color: #333;
             margin-bottom: 20px;
+            font-size: 1.5rem;
         }
         .camera-container {
             position: relative;
-            width: 640px;
-            height: 480px;
-            margin: 0 auto 20px;
+            width: 100%;
+            height: auto;
+            aspect-ratio: 4/3;
+            margin: 0 auto 15px;
             border: 3px solid #ddd;
             background-color: #000;
+            border-radius: 8px;
+            overflow: hidden;
         }
         video {
             width: 100%;
@@ -34,24 +38,25 @@
             object-fit: cover;
         }
         .controls {
-            margin: 20px 0;
+            margin: 15px 0;
             display: flex;
             justify-content: center;
-            gap: 10px;
+            gap: 8px;
             flex-wrap: wrap;
         }
         button {
-            padding: 10px 15px;
-            font-size: 16px;
+            padding: 10px 12px;
+            font-size: 14px;
             cursor: pointer;
             border: none;
             border-radius: 5px;
             background-color: #4CAF50;
             color: white;
             transition: background-color 0.3s;
+            min-width: 120px;
         }
         button:hover {
-            background-color: #45a049;
+            opacity: 0.9;
         }
         button#add-defective {
             background-color: #f44336;
@@ -68,26 +73,30 @@
         button#reset {
             background-color: #ff9800;
         }
-        button#reset:hover {
-            background-color: #e68a00;
+        button#toggle-camera {
+            background-color: #9C27B0;
+        }
+        button#toggle-flash {
+            background-color: #607D8B;
         }
         #status {
-            margin: 20px 0;
-            padding: 10px;
+            margin: 15px 0;
+            padding: 8px;
             background-color: #eee;
             border-radius: 5px;
             min-height: 20px;
+            font-size: 14px;
         }
         .thumbnail-container {
             display: flex;
             flex-wrap: wrap;
             justify-content: center;
-            gap: 10px;
-            margin-top: 20px;
+            gap: 8px;
+            margin-top: 15px;
         }
         .thumbnail {
-            width: 100px;
-            height: 75px;
+            width: 80px;
+            height: 60px;
             object-fit: cover;
             border: 2px solid #ddd;
             border-radius: 4px;
@@ -102,17 +111,32 @@
             position: absolute;
             top: 10px;
             left: 10px;
-            padding: 10px;
+            padding: 8px 12px;
             background-color: rgba(0, 0, 0, 0.7);
             color: white;
-            border-radius: 4px;
+            border-radius: 20px;
             font-weight: bold;
+            font-size: 14px;
         }
-        @media (max-width: 700px) {
-            .camera-container {
-                width: 100%;
-                height: auto;
-                aspect-ratio: 4/3;
+        .mobile-controls {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+        .mobile-controls button {
+            padding: 8px;
+            min-width: auto;
+            flex: 1;
+        }
+        @media (max-width: 480px) {
+            button {
+                padding: 8px 10px;
+                font-size: 13px;
+                min-width: 100px;
+            }
+            h1 {
+                font-size: 1.3rem;
             }
         }
     </style>
@@ -123,6 +147,11 @@
     <div class="camera-container">
         <video id="webcam" autoplay playsinline muted></video>
         <div id="prediction" class="prediction-overlay">Aguardando análise...</div>
+    </div>
+    
+    <div class="mobile-controls">
+        <button id="toggle-camera">🔄 Câmera</button>
+        <button id="toggle-flash">⚡ LED</button>
     </div>
     
     <div class="controls">
@@ -148,6 +177,10 @@
         let net;
         let classifier;
         let isPredicting = false;
+        let currentStream = null;
+        let facingMode = "environment"; // Começa com câmera traseira
+        let flashOn = false;
+        let track = null;
         
         // Inicializar a aplicação
         async function init() {
@@ -160,13 +193,80 @@
                 ]);
                 
                 // Iniciar câmera
-                statusElement.textContent = 'Iniciando câmera...';
-                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-                webcam.srcObject = stream;
+                await startCamera();
                 
-                statusElement.textContent = 'Pronto para capturar imagens!';
             } catch (error) {
                 statusElement.textContent = `Erro: ${error.message}`;
+                console.error(error);
+            }
+        }
+        
+        // Iniciar câmera com configurações
+        async function startCamera() {
+            statusElement.textContent = 'Iniciando câmera...';
+            
+            // Parar stream anterior se existir
+            if (currentStream) {
+                currentStream.getTracks().forEach(track => track.stop());
+            }
+            
+            const constraints = {
+                video: {
+                    facingMode: facingMode,
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
+                },
+                audio: false
+            };
+            
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                currentStream = stream;
+                webcam.srcObject = stream;
+                
+                // Obter track de vídeo para controlar o flash
+                track = stream.getVideoTracks()[0];
+                
+                await new Promise((resolve) => {
+                    webcam.onloadedmetadata = () => {
+                        resolve();
+                    };
+                });
+                
+                statusElement.textContent = 'Pronto para capturar imagens!';
+                return true;
+            } catch (error) {
+                statusElement.textContent = `Erro na câmera: ${error.message}`;
+                console.error(error);
+                return false;
+            }
+        }
+        
+        // Alternar entre câmeras frontal e traseira
+        async function toggleCamera() {
+            facingMode = facingMode === "user" ? "environment" : "user";
+            statusElement.textContent = `Alternando para câmera ${facingMode === "user" ? "frontal" : "traseira"}...`;
+            const success = await startCamera();
+            if (success) {
+                statusElement.textContent = `Câmera ${facingMode === "user" ? "frontal" : "traseira"} ativada!`;
+            }
+        }
+        
+        // Ligar/desligar flash (se disponível)
+        async function toggleFlash() {
+            if (!track || !track.getCapabilities().torch) {
+                statusElement.textContent = 'Flash não disponível neste dispositivo';
+                return;
+            }
+            
+            try {
+                flashOn = !flashOn;
+                await track.applyConstraints({
+                    advanced: [{ torch: flashOn }]
+                });
+                statusElement.textContent = `Flash ${flashOn ? 'ligado' : 'desligado'}`;
+            } catch (error) {
+                statusElement.textContent = 'Erro ao controlar flash';
                 console.error(error);
             }
         }
@@ -267,8 +367,24 @@
         document.getElementById('add-defective').addEventListener('click', () => addExample('defeituosa'));
         document.getElementById('train').addEventListener('click', train);
         document.getElementById('reset').addEventListener('click', reset);
+        document.getElementById('toggle-camera').addEventListener('click', toggleCamera);
+        document.getElementById('toggle-flash').addEventListener('click', toggleFlash);
+        
+        // Verificar se é mobile
+        function isMobile() {
+            return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        }
+        
+        // Ajustar interface para mobile
+        function adaptForMobile() {
+            if (isMobile()) {
+                // Mostrar controles específicos para mobile
+                document.querySelector('.mobile-controls').style.display = 'flex';
+            }
+        }
         
         // Iniciar aplicação
+        adaptForMobile();
         init();
     </script>
 </body>
