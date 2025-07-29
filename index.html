@@ -3,31 +3,39 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Detector de Defeitos em Placas Eletrônicas</title>
+    <title>Detector Avançado de Defeitos</title>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.18.0/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.0.4/dist/mobilenet.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/knn-classifier@1.2.2/dist/knn-classifier.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/opencv.js@1.2.1/opencv.min.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
+            max-width: 100%;
+            margin: 0;
+            padding: 10px;
             text-align: center;
-            background-color: #f5f5f5;
+            background-color: #121212;
+            color: white;
         }
         h1 {
-            color: #333;
-            margin-bottom: 20px;
+            color: #4CAF50;
+            margin-bottom: 15px;
             font-size: 1.5rem;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
         }
         .camera-container {
             position: relative;
             width: 100%;
+            max-width: 640px;
             height: auto;
             aspect-ratio: 4/3;
             margin: 0 auto 15px;
-            border: 3px solid #ddd;
+            border: 2px solid #333;
             background-color: #000;
             border-radius: 8px;
             overflow: hidden;
@@ -37,6 +45,11 @@
             height: 100%;
             object-fit: cover;
         }
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
         .controls {
             margin: 15px 0;
             display: flex;
@@ -45,47 +58,68 @@
             flex-wrap: wrap;
         }
         button {
-            padding: 10px 12px;
+            padding: 10px 15px;
             font-size: 14px;
             cursor: pointer;
             border: none;
             border-radius: 5px;
-            background-color: #4CAF50;
+            background-color: #333;
             color: white;
-            transition: background-color 0.3s;
-            min-width: 120px;
+            transition: all 0.3s;
+            min-width: 140px;
         }
         button:hover {
-            opacity: 0.9;
+            background-color: #444;
+        }
+        button#add-correct {
+            background-color: #2E7D32;
         }
         button#add-defective {
-            background-color: #f44336;
-        }
-        button#add-defective:hover {
-            background-color: #d32f2f;
+            background-color: #C62828;
         }
         button#train {
-            background-color: #2196F3;
-        }
-        button#train:hover {
-            background-color: #0b7dda;
+            background-color: #1565C0;
         }
         button#reset {
-            background-color: #ff9800;
+            background-color: #EF6C00;
         }
-        button#toggle-camera {
-            background-color: #9C27B0;
-        }
-        button#toggle-flash {
-            background-color: #607D8B;
+        button.active {
+            box-shadow: 0 0 10px rgba(255, 255, 255, 0.8);
         }
         #status {
             margin: 15px 0;
-            padding: 8px;
-            background-color: #eee;
+            padding: 10px;
+            background-color: #333;
             border-radius: 5px;
             min-height: 20px;
             font-size: 14px;
+        }
+        .confidence-meter {
+            width: 100%;
+            max-width: 300px;
+            height: 10px;
+            background-color: #333;
+            border-radius: 5px;
+            margin: 10px auto;
+            overflow: hidden;
+        }
+        #confidence-bar {
+            height: 100%;
+            width: 0%;
+            background-color: #4CAF50;
+            transition: width 0.3s;
+        }
+        .led-indicator {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background-color: #333;
+            margin: 10px auto;
+            transition: background-color 0.3s;
+        }
+        .led-indicator.active {
+            background-color: #4CAF50;
+            box-shadow: 0 0 10px #4CAF50;
         }
         .thumbnail-container {
             display: flex;
@@ -98,25 +132,26 @@
             width: 80px;
             height: 60px;
             object-fit: cover;
-            border: 2px solid #ddd;
+            border: 2px solid #333;
             border-radius: 4px;
         }
         .thumbnail.correct {
             border-color: #4CAF50;
         }
         .thumbnail.defective {
-            border-color: #f44336;
+            border-color: #F44336;
         }
-        .prediction-overlay {
+        .detection-overlay {
             position: absolute;
             top: 10px;
             left: 10px;
-            padding: 8px 12px;
+            right: 10px;
+            padding: 8px;
             background-color: rgba(0, 0, 0, 0.7);
             color: white;
-            border-radius: 20px;
-            font-weight: bold;
+            border-radius: 5px;
             font-size: 14px;
+            text-align: left;
         }
         .mobile-controls {
             display: flex;
@@ -124,65 +159,73 @@
             gap: 8px;
             margin-bottom: 10px;
         }
-        .mobile-controls button {
-            padding: 8px;
-            min-width: auto;
-            flex: 1;
-        }
-        @media (max-width: 480px) {
-            button {
-                padding: 8px 10px;
-                font-size: 13px;
-                min-width: 100px;
-            }
-            h1 {
-                font-size: 1.3rem;
-            }
-        }
     </style>
 </head>
 <body>
-    <h1>Detector de Defeitos em Placas Eletrônicas</h1>
-    
-    <div class="camera-container">
-        <video id="webcam" autoplay playsinline muted></video>
-        <div id="prediction" class="prediction-overlay">Aguardando análise...</div>
+    <div class="container">
+        <h1>Detector Avançado de Placas Eletrônicas</h1>
+        
+        <div class="camera-container">
+            <video id="webcam" autoplay playsinline muted></video>
+            <canvas id="canvas"></canvas>
+            <div class="detection-overlay" id="detection-info">
+                Aguardando detecção...
+            </div>
+        </div>
+        
+        <div class="mobile-controls">
+            <button id="toggle-camera">🔄 Câmera</button>
+            <button id="toggle-flash">⚡ LED</button>
+        </div>
+        
+        <div class="led-indicator" id="led"></div>
+        <div class="confidence-meter"><div id="confidence-bar"></div></div>
+        
+        <div class="controls">
+            <button id="add-correct">Adicionar Correta</button>
+            <button id="add-defective">Adicionar Defeituosa</button>
+            <button id="train">Treinar Modelo</button>
+            <button id="reset">Resetar</button>
+        </div>
+        
+        <div id="status">Inicializando sistema...</div>
+        
+        <h3>Imagens de Treino</h3>
+        <div class="thumbnail-container" id="thumbnails"></div>
     </div>
-    
-    <div class="mobile-controls">
-        <button id="toggle-camera">🔄 Câmera</button>
-        <button id="toggle-flash">⚡ LED</button>
-    </div>
-    
-    <div class="controls">
-        <button id="add-correct">Adicionar Correta</button>
-        <button id="add-defective">Adicionar Defeituosa</button>
-        <button id="train">Treinar Modelo</button>
-        <button id="reset">Resetar</button>
-    </div>
-    
-    <div id="status">Aguardando acesso à câmera...</div>
-    
-    <h3>Imagens de Treino</h3>
-    <div class="thumbnail-container" id="thumbnails"></div>
 
     <script>
         // Elementos da interface
         const webcam = document.getElementById('webcam');
-        const predictionElement = document.getElementById('prediction');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const detectionInfo = document.getElementById('detection-info');
         const statusElement = document.getElementById('status');
         const thumbnailsContainer = document.getElementById('thumbnails');
+        const confidenceBar = document.getElementById('confidence-bar');
+        const ledIndicator = document.getElementById('led');
         
-        // Variáveis do modelo
+        // Variáveis do sistema
         let net;
         let classifier;
         let isPredicting = false;
         let currentStream = null;
-        let facingMode = "environment"; // Começa com câmera traseira
+        let facingMode = "environment";
         let flashOn = false;
         let track = null;
+        let speechSynth = window.speechSynthesis;
+        let cvReady = false;
+        let consecutiveMatches = 0;
+        let lastDetection = null;
+        let detectionThreshold = 3;
+        let isBoardDetected = false;
+        let boardContour = null;
         
-        // Inicializar a aplicação
+        // Configurações
+        const captureSize = { width: 224, height: 224 };
+        const minContourArea = 10000; // Área mínima para considerar uma placa
+        
+        // Inicializar o sistema
         async function init() {
             try {
                 // Carregar modelos
@@ -192,8 +235,18 @@
                     knnClassifier.create()
                 ]);
                 
+                // Configurar OpenCV
+                await loadOpenCV();
+                
                 // Iniciar câmera
                 await startCamera();
+                
+                // Configurar canvas
+                canvas.width = webcam.videoWidth;
+                canvas.height = webcam.videoHeight;
+                
+                // Iniciar loop de processamento
+                requestAnimationFrame(processFrame);
                 
             } catch (error) {
                 statusElement.textContent = `Erro: ${error.message}`;
@@ -201,11 +254,31 @@
             }
         }
         
-        // Iniciar câmera com configurações
+        // Carregar OpenCV
+        function loadOpenCV() {
+            return new Promise((resolve) => {
+                if (window.cv) {
+                    cvReady = true;
+                    resolve();
+                    return;
+                }
+                
+                const script = document.createElement('script');
+                script.src = 'https://docs.opencv.org/4.5.5/opencv.js';
+                script.onload = () => {
+                    cv['onRuntimeInitialized'] = () => {
+                        cvReady = true;
+                        resolve();
+                    };
+                };
+                document.body.appendChild(script);
+            });
+        }
+        
+        // Iniciar câmera
         async function startCamera() {
             statusElement.textContent = 'Iniciando câmera...';
             
-            // Parar stream anterior se existir
             if (currentStream) {
                 currentStream.getTracks().forEach(track => track.stop());
             }
@@ -223,12 +296,12 @@
                 const stream = await navigator.mediaDevices.getUserMedia(constraints);
                 currentStream = stream;
                 webcam.srcObject = stream;
-                
-                // Obter track de vídeo para controlar o flash
                 track = stream.getVideoTracks()[0];
                 
                 await new Promise((resolve) => {
                     webcam.onloadedmetadata = () => {
+                        canvas.width = webcam.videoWidth;
+                        canvas.height = webcam.videoHeight;
                         resolve();
                     };
                 });
@@ -242,7 +315,236 @@
             }
         }
         
-        // Alternar entre câmeras frontal e traseira
+        // Processar cada frame
+        async function processFrame() {
+            if (!cvReady || webcam.readyState !== HTMLMediaElement.HAVE_ENOUGH_DATA) {
+                requestAnimationFrame(processFrame);
+                return;
+            }
+            
+            // Desenhar o frame no canvas
+            ctx.drawImage(webcam, 0, 0, canvas.width, canvas.height);
+            
+            // Detectar placa eletrônica (retangular)
+            detectBoard();
+            
+            // Se estiver prevendo e uma placa foi detectada
+            if (isPredicting && isBoardDetected) {
+                await predict();
+            }
+            
+            requestAnimationFrame(processFrame);
+        }
+        
+        // Detectar placa eletrônica
+        function detectBoard() {
+            if (!cvReady) return;
+            
+            try {
+                // Converter imagem para OpenCV
+                const src = cv.imread(canvas);
+                const dst = new cv.Mat();
+                const contours = new cv.MatVector();
+                const hierarchy = new cv.Mat();
+                
+                // Pré-processamento
+                cv.cvtColor(src, dst, cv.COLOR_RGBA2GRAY);
+                cv.threshold(dst, dst, 120, 255, cv.THRESH_BINARY_INV);
+                cv.findContours(dst, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+                
+                // Encontrar maior contorno retangular
+                let maxArea = 0;
+                boardContour = null;
+                
+                for (let i = 0; i < contours.size(); ++i) {
+                    const contour = contours.get(i);
+                    const perimeter = cv.arcLength(contour, true);
+                    const approx = new cv.Mat();
+                    cv.approxPolyDP(contour, approx, 0.02 * perimeter, true);
+                    
+                    // Verificar se é um retângulo (4 lados)
+                    if (approx.rows === 4) {
+                        const area = cv.contourArea(approx);
+                        if (area > minContourArea && area > maxArea) {
+                            maxArea = area;
+                            boardContour = approx;
+                        }
+                    }
+                    approx.delete();
+                }
+                
+                // Desenhar contorno se encontrado
+                if (boardContour) {
+                    isBoardDetected = true;
+                    const color = new cv.Scalar(0, 255, 0, 255);
+                    cv.drawContours(src, new cv.MatVector(boardContour), -1, color, 3);
+                    
+                    // Calcular retângulo delimitador
+                    const rect = cv.boundingRect(boardContour);
+                    detectionInfo.textContent = `Placa detectada: ${rect.width}x${rect.height}px`;
+                } else {
+                    isBoardDetected = false;
+                    detectionInfo.textContent = 'Nenhuma placa detectada';
+                }
+                
+                // Liberar memória
+                cv.imshow(canvas, src);
+                src.delete();
+                dst.delete();
+                contours.delete();
+                hierarchy.delete();
+                
+            } catch (error) {
+                console.error('Erro no OpenCV:', error);
+            }
+        }
+        
+        // Obter região da placa para análise
+        function getBoardRegion() {
+            if (!boardContour) return null;
+            
+            const rect = cv.boundingRect(boardContour);
+            const x = Math.max(0, rect.x);
+            const y = Math.max(0, rect.y);
+            const width = Math.min(rect.width, canvas.width - x);
+            const height = Math.min(rect.height, canvas.height - y);
+            
+            // Criar canvas temporário para extrair a região
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = width;
+            tempCanvas.height = height;
+            const tempCtx = tempCanvas.getContext('2d');
+            
+            // Extrair a região da placa
+            tempCtx.drawImage(
+                canvas, 
+                x, y, width, height, 
+                0, 0, width, height
+            );
+            
+            return tempCanvas;
+        }
+        
+        // Adicionar exemplo de treino
+        async function addExample(classId) {
+            if (!isBoardDetected) {
+                statusElement.textContent = 'Nenhuma placa detectada para capturar';
+                return;
+            }
+            
+            statusElement.textContent = `Capturando imagem ${classId}...`;
+            
+            // Extrair região da placa
+            const boardCanvas = getBoardRegion();
+            if (!boardCanvas) return;
+            
+            // Processar imagem
+            const img = tf.browser.fromPixels(boardCanvas);
+            const processedImg = tf.image.resizeBilinear(img, [captureSize.width, captureSize.height]);
+            const activation = net.infer(processedImg, 'conv_preds');
+            
+            // Adicionar ao classificador
+            classifier.addExample(activation, classId);
+            
+            // Criar miniatura
+            createThumbnail(img, classId);
+            
+            // Limpar memória
+            img.dispose();
+            processedImg.dispose();
+            activation.dispose();
+            
+            statusElement.textContent = `Imagem ${classId} adicionada. Total: ${classifier.getNumExamples()}`;
+        }
+        
+        // Criar miniatura
+        function createThumbnail(imgTensor, classId) {
+            const canvas = document.createElement('canvas');
+            canvas.width = captureSize.width;
+            canvas.height = captureSize.height;
+            tf.browser.toPixels(imgTensor, canvas).then(() => {
+                const thumbnail = document.createElement('img');
+                thumbnail.src = canvas.toDataURL();
+                thumbnail.classList.add('thumbnail', classId);
+                thumbnailsContainer.appendChild(thumbnail);
+            });
+        }
+        
+        // Treinar modelo
+        async function train() {
+            if (classifier.getNumExamples() === 0) {
+                statusElement.textContent = 'Adicione imagens antes de treinar';
+                return;
+            }
+            
+            statusElement.textContent = 'Preparando modelo...';
+            isPredicting = true;
+            consecutiveMatches = 0;
+            lastDetection = null;
+            statusElement.textContent = 'Modelo pronto! Analisando...';
+        }
+        
+        // Fazer predição
+        async function predict() {
+            if (!isPredicting || !isBoardDetected) return;
+            
+            // Extrair região da placa
+            const boardCanvas = getBoardRegion();
+            if (!boardCanvas) return;
+            
+            // Processar imagem
+            const img = tf.browser.fromPixels(boardCanvas);
+            const processedImg = tf.image.resizeBilinear(img, [captureSize.width, captureSize.height]);
+            const activation = net.infer(processedImg, 'conv_preds');
+            
+            const result = await classifier.predictClass(activation);
+            const confidence = result.confidences[result.label];
+            
+            // Atualizar barra de confiança
+            confidenceBar.style.width = `${Math.round(confidence * 100)}%`;
+            confidenceBar.style.backgroundColor = result.label === 'correta' ? '#4CAF50' : '#F44336';
+            
+            // Verificar se a detecção é consistente
+            if (lastDetection === result.label) {
+                consecutiveMatches++;
+            } else {
+                consecutiveMatches = 1;
+                lastDetection = result.label;
+            }
+            
+            // Só aceitar após 3 detecções consistentes
+            if (consecutiveMatches >= detectionThreshold) {
+                if (result.label === 'correta') {
+                    // Feedback visual positivo
+                    ledIndicator.classList.add('active');
+                    setTimeout(() => ledIndicator.classList.remove('active'), 300);
+                    detectionInfo.textContent = 'Placa CORRETA detectada';
+                } else {
+                    // Feedback de voz e visual para defeito
+                    detectionInfo.textContent = 'DEFEITO detectado na placa!';
+                    speak('Placa errada');
+                }
+            } else {
+                detectionInfo.textContent = `Analisando... (${consecutiveMatches}/${detectionThreshold})`;
+            }
+            
+            // Liberar memória
+            img.dispose();
+            processedImg.dispose();
+            activation.dispose();
+        }
+        
+        // Sintetizar voz
+        function speak(text) {
+            if (speechSynth.speaking) speechSynth.cancel();
+            
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.rate = 0.9;
+            utterance.pitch = 0.8;
+            speechSynth.speak(utterance);
+        }
+        
+        // Alternar câmera
         async function toggleCamera() {
             facingMode = facingMode === "user" ? "environment" : "user";
             statusElement.textContent = `Alternando para câmera ${facingMode === "user" ? "frontal" : "traseira"}...`;
@@ -252,7 +554,7 @@
             }
         }
         
-        // Ligar/desligar flash (se disponível)
+        // Alternar flash
         async function toggleFlash() {
             if (!track || !track.getCapabilities().torch) {
                 statusElement.textContent = 'Flash não disponível neste dispositivo';
@@ -271,95 +573,17 @@
             }
         }
         
-        // Adicionar imagem ao classificador
-        async function addExample(classId) {
-            statusElement.textContent = `Capturando imagem ${classId}...`;
-            
-            // Capturar imagem da câmera
-            const img = tf.browser.fromPixels(webcam);
-            const processedImg = tf.image.resizeBilinear(img, [224, 224]);
-            
-            // Obter ativação do MobileNet
-            const activation = net.infer(processedImg, 'conv_preds');
-            
-            // Adicionar ao classificador
-            classifier.addExample(activation, classId);
-            
-            // Criar miniatura
-            createThumbnail(img, classId);
-            
-            // Limpar memória
-            img.dispose();
-            processedImg.dispose();
-            activation.dispose();
-            
-            statusElement.textContent = `Imagem ${classId} adicionada. Total: ${classifier.getNumExamples()}`;
-        }
-        
-        // Criar miniatura para visualização
-        function createThumbnail(imgTensor, classId) {
-            const canvas = document.createElement('canvas');
-            canvas.width = 224;
-            canvas.height = 224;
-            tf.browser.toPixels(imgTensor, canvas).then(() => {
-                const thumbnail = document.createElement('img');
-                thumbnail.src = canvas.toDataURL();
-                thumbnail.classList.add('thumbnail', classId);
-                thumbnailsContainer.appendChild(thumbnail);
-            });
-        }
-        
-        // Treinar modelo (na verdade, apenas preparar para predição)
-        async function train() {
-            if (classifier.getNumExamples() === 0) {
-                statusElement.textContent = 'Adicione imagens antes de treinar';
-                return;
-            }
-            
-            statusElement.textContent = 'Preparando modelo...';
-            isPredicting = true;
-            statusElement.textContent = 'Modelo pronto! Analisando...';
-            
-            // Iniciar loop de predição
-            while (isPredicting) {
-                await predict();
-                await tf.nextFrame(); // Liberar o event loop
-            }
-        }
-        
-        // Fazer predição
-        async function predict() {
-            if (!isPredicting) return;
-            
-            const img = tf.browser.fromPixels(webcam);
-            const processedImg = tf.image.resizeBilinear(img, [224, 224]);
-            const activation = net.infer(processedImg, 'conv_preds');
-            
-            const result = await classifier.predictClass(activation);
-            
-            // Mostrar resultado
-            if (result.confidences[result.label] > 0.7) {
-                predictionElement.textContent = result.label === 'correta' ? '✅ CORRETA' : '❌ DEFEITUOSA';
-                predictionElement.style.color = result.label === 'correta' ? '#4CAF50' : '#f44336';
-            } else {
-                predictionElement.textContent = 'Analisando...';
-                predictionElement.style.color = 'white';
-            }
-            
-            // Limpar memória
-            img.dispose();
-            processedImg.dispose();
-            activation.dispose();
-        }
-        
-        // Resetar aplicação
+        // Resetar sistema
         function reset() {
             isPredicting = false;
             classifier.clearAllClasses();
             thumbnailsContainer.innerHTML = '';
-            predictionElement.textContent = 'Aguardando análise...';
-            predictionElement.style.color = 'white';
-            statusElement.textContent = 'Aplicação resetada. Pronto para novas imagens.';
+            confidenceBar.style.width = '0%';
+            ledIndicator.classList.remove('active');
+            detectionInfo.textContent = 'Aguardando detecção...';
+            statusElement.textContent = 'Sistema resetado. Pronto para novas imagens.';
+            consecutiveMatches = 0;
+            lastDetection = null;
         }
         
         // Event listeners
@@ -370,21 +594,7 @@
         document.getElementById('toggle-camera').addEventListener('click', toggleCamera);
         document.getElementById('toggle-flash').addEventListener('click', toggleFlash);
         
-        // Verificar se é mobile
-        function isMobile() {
-            return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-        }
-        
-        // Ajustar interface para mobile
-        function adaptForMobile() {
-            if (isMobile()) {
-                // Mostrar controles específicos para mobile
-                document.querySelector('.mobile-controls').style.display = 'flex';
-            }
-        }
-        
-        // Iniciar aplicação
-        adaptForMobile();
+        // Iniciar sistema
         init();
     </script>
 </body>
